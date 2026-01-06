@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>植物大战僵尸 - 矢量精美版</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #111;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+            height: 100vh;
+            overflow: hidden;
+            user-select: none; /* 禁止选中文本 */
+        }
+
+        #game-wrapper {
+            position: relative;
+            box-shadow: 0 0 50px rgba(0,0,0,0.8);
+            border: 8px solid #3c2415;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        canvas {
+            background-color: #5d9e3f;
+            display: block;
+            cursor: crosshair;
+        }
+
+        /* 顶部 UI 栏 */
+        #ui-bar {
+            background: rgba(44, 62, 80, 0.9);
+            width: 900px;
+            height: 90px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            padding: 0 20px;
+            box-sizing: border-box;
+            border-bottom: 4px solid #1a252f;
+        }
+
+        /* 阳光计数器 */
+        #sun-counter {
+            background: #2c3e50;
+            border: 2px solid #f1c40f;
+            border-radius: 5px;
+            padding: 5px 15px;
+            margin-right: 30px;
+            display: flex;
+            align-items: center;
+            color: #f1c40f;
+            font-weight: bold;
+            font-size: 24px;
+            box-shadow: 0 0 10px rgba(241, 196, 15, 0.3);
+        }
+
+        .sun-icon {
+            display: inline-block;
+            width: 25px;
+            height: 25px;
+            background: radial-gradient(circle, #f1c40f 40%, #f39c12 100%);
+            border-radius: 50%;
+            margin-right: 10px;
+            box-shadow: 0 0 8px #f1c40f;
+        }
+
+        /* 植物卡片 */
+        .card {
+            width: 70px;
+            height: 75px;
+            background: #95a5a6;
+            border: 3px solid #7f8c8d;
+            border-radius: 8px;
+            margin-right: 10px;
+            cursor: pointer;
+            position: relative;
+            transition: all 0.2s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-end;
+            padding-bottom: 5px;
+        }
+
+        .card:hover { filter: brightness(1.1); transform: translateY(-2px); }
+        .card.active { border-color: #f1c40f; background: #fff; box-shadow: 0 0 15px #f1c40f; }
+        .card.disabled { opacity: 0.5; cursor: not-allowed; filter: grayscale(1); }
+
+        .card-img { width: 40px; height: 40px; margin-bottom: 5px; }
+        .card-cost { font-size: 14px; font-weight: bold; color: #333; text-shadow: 0 0 2px white;}
+
+        /* 游戏结束弹窗 */
+        #game-over-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+        
+        h1 { font-size: 60px; color: #e74c3c; margin: 0; font-family: 'Impact', sans-serif; text-shadow: 2px 2px 0 #000; letter-spacing: 2px;}
+        h2 { color: #f1c40f; margin-top: 10px; }
+        
+        button.restart-btn {
+            background: #2ecc71;
+            border: none;
+            padding: 15px 40px;
+            font-size: 24px;
+            color: white;
+            font-weight: bold;
+            border-radius: 50px;
+            cursor: pointer;
+            margin-top: 30px;
+            box-shadow: 0 5px 0 #27ae60;
+            transition: transform 0.1s;
+        }
+        button.restart-btn:active { transform: translateY(5px); box-shadow: none; }
+
+    </style>
+</head>
+<body>
+
+<div id="ui-bar">
+    <div id="sun-counter"><div class="sun-icon"></div> <span id="sun-display">150</span></div>
+    
+    <!-- 卡片：豌豆射手 -->
+    <div class="card" id="card-shooter" onclick="selectPlant(0)">
+        <div style="width:30px; height:30px; background:#2ecc71; border-radius:50%; border:2px solid #27ae60;"></div>
+        <div class="card-cost">100</div>
+    </div>
+
+    <!-- 卡片：向日葵 -->
+    <div class="card" id="card-sunflower" onclick="selectPlant(1)">
+        <div style="width:30px; height:30px; background:#f1c40f; border-radius:50%; border:2px solid #e67e22;"></div>
+        <div class="card-cost">50</div>
+    </div>
+</div>
+
+<div id="game-wrapper">
+    <canvas id="gameCanvas" width="900" height="500"></canvas>
+    
+    <div id="game-over-screen">
+        <h1>GAME OVER</h1>
+        <h2>僵尸吃掉了你的脑子！</h2>
+        <h3 id="final-score">得分: 0</h3>
+        <button class="restart-btn" onclick="location.reload()">重新挑战</button>
+    </div>
+</div>
+
+<script>
+/**
+ * 核心配置与绘图引擎
+ */
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const cellSize = 100; // 格子大小
+const cols = 9;
+const rows = 5;
+
+// 游戏状态
+let frame = 0;
+let score = 0;
+let gameOver = false;
+let sunAmount = 150;
+let selectedPlant = -1; // -1:无, 0:射手, 1:向日葵
+
+// 实体数组
+const grid = [];
+const defenders = [];
+const enemies = [];
+const projectiles = [];
+const resources = [];
+const mowers = [];
+
+// 鼠标状态
+const mouse = { x: 0, y: 0, clicked: false };
+const canvasRect = canvas.getBoundingClientRect();
+
+// --- 初始化 ---
+
+// 1. 初始化草坪网格
+class Cell {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.width = cellSize;
+        this.height = cellSize;
+    }
+    draw() {
+        // 画出深浅相间的草地
+        // 计算行号和列号
+        let col = this.x / cellSize;
+        let row = this.y / cellSize;
+        if ((col + row) % 2 === 0) {
+            ctx.fillStyle = '#2ecc71'; // 浅绿
+        } else {
+            ctx.fillStyle = '#27ae60'; // 深绿
+        }
+        ctx.fillRect(this.x, this.y, this.width, this.height);
+        // 只有边框
+        // ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+        // ctx.strokeRect(this.x, this.y, this.width, this.height);
+    }
+}
+function createGrid() {
+    for (let y = 0; y < canvas.height; y += cellSize) {
+        for (let x = 0; x < canvas.width; x += cellSize) {
+            grid.push(new Cell(x, y));
+        }
+    }
+}
+
+// 2. 初始化小推车 (每行一个)
+class LawnMower {
+    constructor(y) {
+        this.x = -80; // 停在屏幕左侧边缘
+        this.y = y;
+        this.width = 70;
+        this.height = 60;
+        this.active = false; // 是否被触发
+        this.speed = 10;
+        this.used = false; // 是否已经跑出屏幕
+    }
+    update() {
+        if (this.active) {
+            this.x += this.speed;
+            // 撞死路径上的僵尸
+            for (let i = 0; i < enemies.length; i++) {
+                if (collision(this, enemies[i]) && enemies[i].y === this.y) {
+                    enemies[i].health = 0; // 秒杀
+                }
+            }
+            if (this.x > canvas.width) this.used = true;
+        }
+    }
+    draw() {
+        if (this.used) return;
+        // 绘制小推车
+        let drawX = this.active ? this.x : 10; // 没触发时停在格子左边
+        
+        ctx.save();
+        ctx.translate(drawX, this.y + 20);
+        
+        // 车身
+        ctx.fillStyle = '#e74c3c'; // 红色
+        ctx.fillRect(0, 20, 60, 30);
+        
+        // 轮子
+        ctx.fillStyle = '#333';
+        ctx.beginPath();
+        ctx.arc(15, 50, 12, 0, Math.PI*2);
+        ctx.arc(45, 50, 12, 0, Math.PI*2);
+        ctx.fill();
+        
+        // 把手
+        ctx.strokeStyle = '#ccc';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(0, 20);
+        ctx.lineTo(-15, -10);
+        ctx.stroke();
+        
+        // 引擎盖细节
+        ctx.fillStyle = '#c0392b';
+        ctx.fillRect(5, 15, 30, 10);
+        
+        ctx.restore();
+    }
+}
+function initMowers() {
+    for (let i = 0; i < rows; i++) {
+        mowers.push(new LawnMower(i * cellSize));
+    }
+}
+
+// --- 游戏实体类 ---
+
+// 阳光
+class Resource {
+    constructor(x, y) {
+        this.x = x || Math.random() * (canvas.width - 100) + 50;
+        this.y = y || -50;
+        this.width = 60;
+        this.height = 60;
+        this.amount = 25;
+        this.speed = 1.5;
+        this.targetY = y ? y : Math.random() * (canvas.height - 100) + 50; // 自然掉落的目标位置
+        this.scale = 1;
+        this.growth = 0.01;
+    }
+    update() {
+        // 下落动画
+        if (this.y < this.targetY) {
+            this.y += this.speed;
+        }
+        // 呼吸效果
+        if (this.scale > 1.1 || this.scale < 0.9) this.growth *= -1;
+        this.scale += this.growth;
+    }
+    draw() {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.scale(this.scale, this.scale);
+        
+        // 光晕
+        let gradient = ctx.createRadialGradient(0, 0, 10, 0, 0, 30);
+        gradient.addColorStop(0, '#fff');
+        gradient.addColorStop(0.5, '#f1c40f');
+        gradient.addColorStop(1, 'rgba(241, 196, 15, 0)');
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(0, 0, 35, 0, Math.PI*2);
+        ctx.fill();
+        
+        // 核心
+        ctx.fillStyle = '#f39c12';
+        ctx.beginPath();
+        ctx.arc(0, 0, 15, 0, Math.PI*2);
+        ctx.fill();
+        
+        ctx.restore();
+    }
+}
+
+// 豌豆子弹
+class Projectile {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.width = 20;
+        this.height = 20;
+        this.power = 25;
+        this.speed = 6;
+    }
+    update() { this.x += this.speed; }
+    draw() {
+        ctx.fillStyle = '#2ecc71';
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, 10, 0, Math.PI*2);
+        ctx.fill();
+        // 高光
+        ctx.fillStyle = '#a9dfbf';
+        ctx.beginPath();
+        ctx.arc(this.x - 3, this.y - 3, 3, 0, Math.PI*2);
+        ctx.fill();
+    }
+}
+
+// 植物基类
+class Defender {
+    constructor(x, y, type) {
+        this.x = x;
+        this.y = y;
+        this.width = cellSize;
+        this.height = cellSize;
+        this.type = type;
+        this.health = 100;
+        this.timer = 0;
+        this.frameX = 0; // 用于简单的动画
+    }
+    draw() {
+        ctx.save();
+        ctx.translate(this.x + cellSize/2, this.y + cellSize/2);
+        
+        if (this.type === 0) { // 豌豆射手
+            // 头部
+            ctx.fillStyle = '#2ecc71';
+            ctx.beginPath();
+            ctx.arc(0, -10, 25, 0, Math.PI*2);
+            ctx.fill();
+            // 嘴巴 (炮筒)
+            ctx.fillStyle = '#27ae60';
+            ctx.beginPath();
+            ctx.rect(10, -20, 25, 20); // 向右伸出
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(35, -10, 10, -Math.PI/2, Math.PI/2); // 炮口圆弧
+            ctx.fill();
+            // 眼睛
+            ctx.fillStyle = 'black';
+            ctx.beginPath();
+            ctx.arc(5, -15, 3, 0, Math.PI*2);
+            ctx.arc(12, -15, 3, 0, Math.PI*2);
+            ctx.fill();
+            // 叶子/底座
+            ctx.fillStyle = '#229954';
+            ctx.beginPath();
+            ctx.ellipse(0, 25, 15, 5, 0, 0, Math.PI*2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.ellipse(-15, 15, 15, 8, -0.5, 0, Math.PI*2); // 左叶
+            ctx.fill();
+            
+        } else if (this.type === 1) { // 向日葵
+            // 花瓣 (循环画8个)
+            ctx.fillStyle = '#f1c40f';
+            for(let i=0; i<8; i++){
+                ctx.rotate(Math.PI/4);
+                ctx.beginPath();
+                ctx.ellipse(25, 0, 10, 6, 0, 0, Math.PI*2);
+                ctx.fill();
+            }
+            // 脸
+            ctx.fillStyle = '#d35400';
+            ctx.beginPath();
+            ctx.arc(0, 0, 20, 0, Math.PI*2);
+            ctx.fill();
+            // 笑容
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(0, 2, 10, 0.2, Math.PI-0.2);
+            ctx.stroke();
+            // 眼睛
+            ctx.fillStyle = '#333';
+            ctx.beginPath();
+            ctx.arc(-6, -5, 2, 0, Math.PI*2);
+            ctx.arc(6, -5, 2, 0, Math.PI*2);
+            ctx.fill();
+            // 茎叶
+            ctx.fillStyle = '#27ae60';
+            ctx.beginPath();
+            ctx.rect(-2, 20, 4, 20);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.ellipse(-10, 35, 10, 5, -0.5, 0, Math.PI*2);
+            ctx.fill();
+        }
+        ctx.restore();
+        
+        // 血条
+        if(this.health < 100) {
+            ctx.fillStyle = 'red';
+            ctx.fillRect(this.x + 10, this.y, 80, 5);
+            ctx.fillStyle = '#2ecc71';
+            ctx.fillRect(this.x + 10, this.y, 80 * (this.health/100), 5);
+        }
+    }
+    update() {
+        this.timer++;
+        if (this.type === 0) { // 豌豆射击
+            if (this.timer % 100 === 0) {
+                // 检测同一行是否有僵尸才射击
+                let hasEnemy = false;
+                for(let enemy of enemies) {
+                    if(enemy.y === this.y && enemy.x > this.x) {
+                        hasEnemy = true;
+                        break;
+                    }
+                }
+                if(hasEnemy) projectiles.push(new Projectile(this.x + 70, this.y + 50));
+            }
+        } else if (this.type === 1) { // 产阳光
+            if (this.timer % 600 === 0) {
+                resources.push(new Resource(this.x + 50, this.y + 50));
+            }
+        }
+    }
+}
+
+// 僵尸类
+class Enemy {
+    constructor(y) {
+        this.x = canvas.width;
+        this.y = y;
+        this.width = cellSize;
+        this.height = cellSize;
+        this.speed = Math.random() * 0.3 + 0.3;
+        this.movement = this.speed;
+        this.health = 100;
+        this.maxHealth = 100;
+        this.walkCycle = 0;
+    }
+    update() {
+        this.x -= this.movement;
+        this.walkCycle += 0.1;
+    }
+    draw() {
+        ctx.save();
+        ctx.translate(this.x + cellSize/2, this.y + cellSize/2);
+        
+        // 身体颜色
+        const skinColor = '#5B9075'; // 僵尸绿
+        const clothColor = '#34495e'; // 蓝西装
+        
+        // 腿 (简单的走路动画)
+        let legOffset = Math.sin(this.walkCycle) * 10;
+        ctx.strokeStyle = '#2c3e50';
+        ctx.lineWidth = 6;
+        
+        // 左腿
+        ctx.beginPath();
+        ctx.moveTo(-5, 20);
+        ctx.lineTo(-5 + legOffset, 45);
+        ctx.stroke();
+        // 右腿
+        ctx.beginPath();
+        ctx.moveTo(5, 20);
+        ctx.lineTo(5 - legOffset, 45);
+        ctx.stroke();
+
+        // 身体
+        ctx.fillStyle = clothColor;
+        ctx.fillRect(-15, -10, 30, 35);
+        
+        // 领带
+        ctx.fillStyle = '#c0392b';
+        ctx.beginPath();
+        ctx.moveTo(0, -5);
+        ctx.lineTo(5, 15);
+        ctx.lineTo(-5, 15);
+        ctx.fill();
+
+        // 头
+        ctx.fillStyle = skinColor;
+        ctx.beginPath();
+        ctx.rect(-18, -45, 36, 36); // 方头
+        ctx.fill();
+        
+        // 眼睛
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(-8, -35, 6, 0, Math.PI*2);
+        ctx.arc(8, -35, 6, 0, Math.PI*2);
+        ctx.fill();
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.arc(-8, -35, 2, 0, Math.PI*2);
+        ctx.arc(8, -35, 2, 0, Math.PI*2);
+        ctx.fill();
+
+        // 手臂
+        ctx.fillStyle = clothColor;
+        ctx.beginPath();
+        ctx.moveTo(10, -5);
+        ctx.lineTo(-20, -15); // 向前伸平
+        ctx.lineTo(-20, -5);
+        ctx.lineTo(10, 5);
+        ctx.fill();
+        
+        ctx.restore();
+        
+        // 血条
+        ctx.fillStyle = 'red';
+        ctx.fillRect(this.x + 15, this.y - 5, 70, 5);
+        ctx.fillStyle = '#8e44ad';
+        ctx.fillRect(this.x + 15, this.y - 5, 70 * (this.health/this.maxHealth), 5);
+    }
+}
+
+// --- 游戏逻辑函数 ---
+
+function collision(first, second) {
+    if (    !(  first.x > second.x + second.width ||
+                first.x + first.width < second.x ||
+                first.y > second.y + second.height ||
+                first.y + first.height < second.y)
+    ) {
+        return true;
+    }
+    return false;
+}
+
+// 处理鼠标交互
+canvas.addEventListener('mousemove', (e) => {
+    mouse.x = e.x - canvasRect.left;
+    mouse.y = e.y - canvasRect.top;
+});
+
+canvas.addEventListener('mousedown', () => {
+    mouse.clicked = true;
+    
+    // 1. 检测是否点击了阳光
+    let sunClicked = false;
+    for (let i = 0; i < resources.length; i++) {
+        // 简单的距离判定
+        let dx = mouse.x - resources[i].x;
+        let dy = mouse.y - resources[i].y;
+        if (Math.sqrt(dx*dx + dy*dy) < 40) {
+            sunAmount += resources[i].amount;
+            updateUI();
+            resources.splice(i, 1);
+            i--;
+            sunClicked = true;
+        }
+    }
+    if (sunClicked) return;
+
+    // 2. 种植逻辑
+    if (selectedPlant !== -1) {
+        let gridX = mouse.x - (mouse.x % cellSize);
+        let gridY = mouse.y - (mouse.y % cellSize);
+        
+        // 边界检查
+        if (gridX < 0 || gridY < 0 || gridX >= canvas.width || gridY >= canvas.height) return;
+
+        // 检查是否已有植物
+        for (let def of defenders) {
+            if (def.x === gridX && def.y === gridY) return;
+        }
+
+        let cost = selectedPlant === 0 ? 100 : 50;
+        if (sunAmount >= cost) {
+            defenders.push(new Defender(gridX, gridY, selectedPlant));
+            sunAmount -= cost;
+            updateUI();
+            selectedPlant = -1; // 种完重置
+            resetCardSelection();
+        }
+    }
+});
+
+canvas.addEventListener('mouseup', () => mouse.clicked = false);
+window.addEventListener('resize', () => {
+    const rect = canvas.getBoundingClientRect();
+    canvasRect.left = rect.left;
+    canvasRect.top = rect.top;
+});
+
+// UI 控制
+function updateUI() {
+    document.getElementById('sun-display').innerText = sunAmount;
+    
+    // 更新卡片状态（灰显不可用）
+    const btnShooter = document.getElementById('card-shooter');
+    const btnSunflower = document.getElementById('card-sunflower');
+    
+    if (sunAmount < 100) btnShooter.classList.add('disabled');
+    else btnShooter.classList.remove('disabled');
+    
+    if (sunAmount < 50) btnSunflower.classList.add('disabled');
+    else btnSunflower.classList.remove('disabled');
+}
+
+function selectPlant(type) {
+    if (type === 0 && sunAmount < 100) return;
+    if (type === 1 && sunAmount < 50) return;
+    
+    selectedPlant = type;
+    resetCardSelection();
+    
+    if (type === 0) document.getElementById('card-shooter').classList.add('active');
+    if (type === 1) document.getElementById('card-sunflower').classList.add('active');
+}
+
+function resetCardSelection() {
+    document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
+}
+
+// --- 游戏主循环 ---
+
+function animate() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // 1. 绘制背景
+    grid.forEach(cell => cell.draw());
+    
+    // 2. 管理小推车
+    mowers.forEach(mower => {
+        mower.update();
+        mower.draw();
+    });
+
+    // 3. 管理植物
+    for (let i = 0; i < defenders.length; i++) {
+        defenders[i].update();
+        defenders[i].draw();
+        if (defenders[i].health <= 0) {
+            defenders.splice(i, 1);
+            i--;
+        }
+    }
+
+    // 4. 管理僵尸
+    for (let i = 0; i < enemies.length; i++) {
+        enemies[i].update();
+        enemies[i].draw();
+        
+        // 输赢判定: 僵尸如果还没死
+        if (enemies[i].x < 0) {
+            // 检查该行是否有可用小推车
+            let rowY = enemies[i].y;
+            let mower = mowers.find(m => m.y === rowY && !m.used);
+            
+            if (mower) {
+                mower.active = true; // 激活小推车
+            } else {
+                gameOver = true; // 没车了，游戏结束
+            }
+        }
+        
+        // 僵尸吃植物
+        enemies[i].movement = enemies[i].speed;
+        for (let def of defenders) {
+            if (collision(enemies[i], def)) {
+                enemies[i].movement = 0;
+                def.health -= 0.5;
+            }
+        }
+    }
+    // 定时生成僵尸
+    if (frame % 300 === 0 && frame > 100) {
+        let y = Math.floor(Math.random() * rows) * cellSize;
+        enemies.push(new Enemy(y));
+    }
+
+    // 5. 管理子弹
+    for (let i = 0; i < projectiles.length; i++) {
+        projectiles[i].update();
+        projectiles[i].draw();
+        
+        // 击中判断
+        for (let j = 0; j < enemies.length; j++) {
+            if (collision(projectiles[i], enemies[j])) {
+                enemies[j].health -= projectiles[i].power;
+                projectiles.splice(i, 1);
+                i--;
+                
+                if (enemies[j].health <= 0) {
+                    enemies.splice(j, 1);
+                    j--;
+                    score += 10;
+                }
+                break;
+            }
+        }
+        // 飞出屏幕
+        if (projectiles[i] && projectiles[i].x > canvas.width) {
+            projectiles.splice(i, 1);
+            i--;
+        }
+    }
+
+    // 6. 管理阳光
+    // 自然掉落
+    if (frame % 500 === 0 && frame > 0) {
+        resources.push(new Resource(undefined, -50));
+    }
+    for (let i = 0; i < resources.length; i++) {
+        resources[i].update();
+        resources[i].draw();
+    }
+
+    // 7. 幽灵跟随 (显示当前选中植物)
+    if (selectedPlant !== -1) {
+        ctx.globalAlpha = 0.5;
+        let pType = selectedPlant;
+        let ghostX = mouse.x - (mouse.x % cellSize) + cellSize/2;
+        let ghostY = mouse.y - (mouse.y % cellSize) + cellSize/2;
+        
+        ctx.save();
+        ctx.translate(ghostX, ghostY);
+        if (pType === 0) {
+            ctx.fillStyle = '#2ecc71';
+            ctx.beginPath(); ctx.arc(0, -10, 25, 0, Math.PI*2); ctx.fill();
+        } else {
+            ctx.fillStyle = '#f1c40f';
+            ctx.beginPath(); ctx.arc(0, 0, 20, 0, Math.PI*2); ctx.fill();
+        }
+        ctx.restore();
+        ctx.globalAlpha = 1.0;
+    }
+
+    frame++;
+    if (!gameOver) requestAnimationFrame(animate);
+    else {
+        document.getElementById('game-over-screen').style.display = 'flex';
+        document.getElementById('final-score').innerText = "最终得分: " + score;
+    }
+}
+
+// 启动
+createGrid();
+initMowers();
+updateUI(); // 初始UI状态
+animate();
+
+</script>
+</body>
+</html>
